@@ -2,54 +2,52 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
-	"io"
 	"net"
-	"os"
+	"time"
 )
 
-func downloadFromPeer(peer string, t *Torrent) error {
-	conn, err := net.Dial("tcp", peer)
+// Peer represents a BitTorrent peer.
+type Peer struct {
+	IP   net.IP
+	Port uint16
+}
+
+// ParsePeers extracts peer addresses from a raw tracker response.
+func ParsePeers(peersBinary []byte) ([]Peer, error) {
+	const peerSize = 6
+	if len(peersBinary)%peerSize != 0 {
+		return nil, errors.New("malformed peers data")
+	}
+
+	numPeers := len(peersBinary) / peerSize
+	peers := make([]Peer, numPeers)
+	for i := 0; i < numPeers; i++ {
+		offset := i * peerSize
+		peers[i] = Peer{
+			IP:   net.IP(peersBinary[offset : offset+4]),
+			Port: binary.BigEndian.Uint16(peersBinary[offset+4 : offset+6]),
+		}
+	}
+
+	return peers, nil
+}
+
+// ConnectToPeer establishes a TCP connection with a peer and performs the handshake.
+func ConnectToPeer(peer Peer, infoHash, peerID [20]byte) error {
+	address := fmt.Sprintf("%s:%d", peer.IP.String(), peer.Port)
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to connect to peer %s: %v", address, err)
 	}
 	defer conn.Close()
 
-	fmt.Println("Connected to peer:", peer)
-
-	// Simplified handshake
-	handshake := make([]byte, 68)
-	handshake[0] = 19
-	copy(handshake[1:], "BitTorrent protocol")
-	copy(handshake[28:], t.Info.Name)
-	copy(handshake[48:], "00112233445566778899")
-	conn.Write(handshake)
-
-	response := make([]byte, 68)
-	conn.Read(response)
-	fmt.Println("Handshake complete with", peer)
-
-	// Request first piece
-	pieceRequest := make([]byte, 17)
-	binary.BigEndian.PutUint32(pieceRequest[1:], 13) // Length
-	pieceRequest[5] = 6                              // Request type
-	binary.BigEndian.PutUint32(pieceRequest[9:], 0)  // Piece index
-	binary.BigEndian.PutUint32(pieceRequest[13:], 0)
-	binary.BigEndian.PutUint32(pieceRequest[17:], 16384)
-	conn.Write(pieceRequest)
-
-	// Read response
-	data := make([]byte, 16384)
-	io.ReadFull(conn, data)
-	fmt.Println("Received first piece")
-
-	// Save file
-	file, err := os.Create(t.Info.Name)
+	handshake, err := PerformHandshake(conn, infoHash, peerID)
 	if err != nil {
-		return err
+		return fmt.Errorf("handshake failed with peer %s: %v", address, err)
 	}
-	defer file.Close()
-	file.Write(data)
 
+	fmt.Printf("✅ Successfully connected to %s | Peer ID: %x\n", address, handshake.PeerID)
 	return nil
 }
