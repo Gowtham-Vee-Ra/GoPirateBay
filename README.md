@@ -1,112 +1,104 @@
-# GoPirateBay - A Barebones Torrent Client in Go
+# GoPirateBay
 
-Welcome to **GoPirateBay**, where I attempt to build a **no-frills, no-nonsense** BitTorrent client in **Golang**. Inspired by [this blog post](https://blog.jse.li/posts/torrent/), this project started as an experiment to see **how torrents work under the hood**. Now, after countless tracker failures, handshake misfires, and some deep dives into network protocols, I finally have something functional.
+A BitTorrent client written in Go from scratch. Inspired by [this blog post](https://blog.jse.li/posts/torrent/), this project started as an exercise to understand how torrents work under the hood — parsing `.torrent` files, talking to trackers, doing the handshake with peers, downloading and verifying pieces. What started as a simple experiment grew into a fairly complete client.
 
-## 🚀 What I Have Working (So Far)
+## Features
 
-- ✅ **Parsing `.torrent` files** - Extracting metadata, info hash, and announce URLs.
-- ✅ **Tracker communication** - Requesting and retrieving peer lists successfully.
-- ✅ **Peer discovery** - Connecting to peers over TCP and validating handshakes.
-- ✅ **Error handling** - Cleaning up weird tracker responses and improving logs.
-- ✅ **CLI improvements** - Better formatted output, showing peers and tracker responses.
-- ⏳ **Next up:** Actually downloading file pieces (yes, the crucial part).
+- Parses `.torrent` files (single-file and multi-file)
+- HTTP and UDP tracker support (BEP 3, BEP 15)
+- Compact peer list decoding (6 bytes per peer)
+- Full piece download with 16 KB block pipelining and SHA-1 verification
+- Endgame mode: last 5 pieces are broadcast to all connected peers simultaneously
+- Resume: SHA-1-verifies existing pieces on disk before connecting to any peer
+- Upload/seeding: serves blocks to peers that request them, full seed mode after download
+- Inbound peer connections (listen socket)
+- Tracker re-announce on the interval the tracker specifies
+- Speed and ETA display (EMA-smoothed, updated every 5 seconds)
 
-## 🏴‍☠️ What Went Wrong (And How I Fixed It)
+## Building
 
-### **1. Trackers Ignoring Requests**
-- Some trackers completely ignored my client’s requests, or sent back responses I couldn’t parse.
-- **Fix:** Improved how I parse tracker responses, handling unexpected formats.
+Requires Go 1.21 or later (uses `slices` from the standard library).
 
-### **2. Connection Issues with Peers**
-- Some peers wouldn't connect, some refused the handshake, and others ghosted me.
-- **Fix:** Implemented better TCP connection handling, including retries and logging failed attempts.
-
-### **3. File Size Detection Was Broken**
-- At first, torrents were reporting **0 bytes** for file size. Kind of important to fix that.
-- **Fix:** Debugged metadata parsing and made sure the correct fields were extracted.
-
-### **4. Missing UDP Tracker Support**
-- A lot of popular torrents rely on UDP trackers, but my client only supported HTTP.
-- **Fix (Upcoming):** Implement UDP tracker communication for broader compatibility.
-
-## Next Steps
-
-To actually **download files**, I need to:
-
-Implement **piece downloading** - fetching and storing file pieces correctly.
-Add **UDP tracker support** - for better peer discovery.
-Improve **peer connection handling** - support multiple simultaneous connections.
-Implement **piece verification** - ensuring we download valid data.
-Introduce a **CLI progress bar** - because watching raw logs is painful.
-
-## 🛠 How to Run
-
-### Prerequisites
-
-Make sure you have **Go installed**:
-```sh
-go version
 ```
-If you don’t have it, grab it from 👉 [https://go.dev/dl/](https://go.dev/dl/)
-
-### Steps to Run
-
-#### Windows
-```sh
-git clone https://github.com/veggiedefender/torrent-client.git
-cd GoPirateBay
-go mod tidy
-go build -o gotorrent.exe
-gotorrent.exe <your-torrent-file>
-```
-
-#### Linux & macOS
-```sh
-git clone https://github.com/veggiedefender/torrent-client.git
-cd GoPirateBay
 go mod tidy
 go build -o gotorrent
-./gotorrent <your-torrent-file>
 ```
 
-## Sample Output
+## Usage
 
 ```
-Tracker URL: http://bt1.archive.org:6969/announce
-Info Hash: b04de7561b467db42044dc06f70ba8022dbbc58b
-File Name: BigBuckBunny_124
-File Size: 441.40 MB
-📡 Found 50 peers
-🔗 Connecting to 67.146.22.212:1024...
-✅ Successfully connected to 67.146.22.212:1024 | Peer ID: 2d5554333630572d5cb83c94faf97e0c8312990d
+./gotorrent [options] <torrent-file>
+```
+
+Options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-o` | `.` | Output directory |
+| `-port` | `6881` | Port to listen on for inbound peers |
+| `-max-peers` | `50` | Maximum outbound peer connections |
+| `-no-resume` | false | Ignore existing files and re-download everything |
+| `-seed` | false | Keep seeding after download completes |
+
+### Example
+
+Any publicly available `.torrent` file works. A few good ones for testing:
+
+- **Big Buck Bunny** (movie, ~276 MB) — widely seeded, good for testing sustained throughput
+  Download the `.torrent` from `https://webtorrent.io/torrents/big-buck-bunny.torrent`
+
+- **Debian netinstall ISO** (~630 MB) — official tracker, very reliable
+  `https://cdimage.debian.org/debian-cd/current/amd64/bt-cd/debian-12.9.0-amd64-netinst.iso.torrent`
+
+- **Ubuntu desktop ISO** (~5 GB) — good stress test for multi-peer downloads
+  `https://releases.ubuntu.com/22.04/ubuntu-22.04.5-desktop-amd64.iso.torrent`
+
+```
+./gotorrent debian-12.9.0-amd64-netinst.iso.torrent
+./gotorrent -o ~/Downloads ubuntu-22.04.5-desktop-amd64.iso.torrent
+./gotorrent -seed -port 6882 big-buck-bunny.torrent
+```
+
+### Sample output
+
+```
+Tracker URL:  http://bttracker.debian.org:6969/announce
+Info Hash:    dc8a9285b8f13d517f982e8d82b7e0f5b18a8a45
+File Name:    debian-12.9.0-amd64-netinst.iso
+File Size:    628.00 MB
+Found 47 peers (re-announce in 1800s)
+635 pieces to download
+Checking for existing pieces... 0/635 already done
+Listening on :6881
+Connecting to 91.121.80.179:51413...
+Connected to 91.121.80.179:51413 | Peer ID: 2d5452323934302d...
+Piece 1/635
+Piece 2/635
 ...
+128/635 (20.2%) | 3.4 MB/s | ETA 2m38s
 ```
 
-## What’s Next?
+## Architecture
 
-✔ **1. Downloading Pieces**
-✔ **2. Writing Data to Disk**  
-✔ **3. Supporting UDP Trackers**  
-✔ **4. Adding Piece Verification**  
-✔ **5. Implementing CLI Progress Bar**  
+| File | Responsibility |
+|------|----------------|
+| `main.go` | Entry point, CLI flags, resume check, re-announce goroutine, progress loop |
+| `torrent.go` | `.torrent` file parsing, info hash computation, piece hash extraction |
+| `tracker.go` | HTTP tracker requests, peer list parsing, multi-tracker fallback |
+| `udp_tracker.go` | UDP tracker protocol (BEP 15) |
+| `peer.go` | Wire protocol messages, piece download, upload, session management |
+| `handshake.go` | BitTorrent handshake (client and server side) |
+| `files.go` | FileWriter: maps global byte offsets to one or more output files |
+| `queue.go` | Thread-safe work queue with endgame mode and resume support |
+| `progress.go` | Speed and duration formatting helpers |
 
-## 🤝 Contributing
+## Protocol notes
 
-Want to help make this better?
+- Pieces are downloaded by sending all block requests for a piece upfront (pipelining), then reading responses.
+- Re-choke during a piece download is handled by waiting for a new unchoke before retrying.
+- In endgame mode the work queue rotates pieces rather than popping them, so multiple peers race to finish the last few pieces. `Done()` is idempotent to handle the resulting duplicate completions safely.
+- The listener accepts inbound connections and runs the same session logic as outbound connections.
 
-1. Fork the repo.  
-2. Create a branch:
-   ```sh
-   git checkout -b feature-name
-   ```
-3. Commit changes:
-   ```sh
-   git commit -m "Added feature XYZ"
-   ```
-4. Push & create a **Pull Request**.  
+## License
 
-## 📜 License
-
-This project is **open-source** under the **MIT License**.
-
----
+MIT

@@ -1,0 +1,19 @@
+# Compiled binaries
+*.exe
+gotorrent
+GoPirateBay
+
+# Torrent files
+*.torrent
+
+# Downloaded content
+*.iso
+*.mp4
+*.mkv
+*.avi
+*.zip
+*.tar.gz
+
+# OS noise
+.DS_Store
+Thumbs.db

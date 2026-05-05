@@ -60,10 +60,25 @@ func ReadHandshake(r io.Reader) (*Handshake, error) {
 	}, nil
 }
 
+// PerformServerHandshake handles the server side of the handshake:
+// reads the client's message first, verifies the info hash, then responds.
+func PerformServerHandshake(conn net.Conn, infoHash, peerID [20]byte) (*Handshake, error) {
+	received, err := ReadHandshake(conn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read client handshake: %v", err)
+	}
+	if received.InfoHash != infoHash {
+		return nil, fmt.Errorf("info hash mismatch from %s", conn.RemoteAddr())
+	}
+	h := NewHandshake(infoHash, peerID)
+	if _, err := conn.Write(h.Serialize()); err != nil {
+		return nil, fmt.Errorf("failed to send server handshake: %v", err)
+	}
+	return received, nil
+}
+
 // PerformHandshake performs a handshake with a given peer.
 func PerformHandshake(conn net.Conn, infoHash, peerID [20]byte) (*Handshake, error) {
-	defer conn.Close()
-
 	handshake := NewHandshake(infoHash, peerID)
 	_, err := conn.Write(handshake.Serialize())
 	if err != nil {

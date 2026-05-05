@@ -11,15 +11,16 @@ import (
 
 // Torrent struct represents parsed .torrent metadata
 type Torrent struct {
-	Announce string `bencode:"announce"`
-	Info     struct {
+	Announce     string     `bencode:"announce"`
+	AnnounceList [][]string `bencode:"announce-list"`
+	Info         struct {
 		Name        string `bencode:"name"`
 		PieceLength int    `bencode:"piece length"`
 		Pieces      string `bencode:"pieces"`
 		Length      int    `bencode:"length,omitempty"` // Single-file torrents
 		Files       []struct {
-			Length int    `bencode:"length"`
-			Path   string `bencode:"path"`
+			Length int      `bencode:"length"`
+			Path   []string `bencode:"path"`
 		} `bencode:"files,omitempty"` // Multi-file torrents
 	} `bencode:"info"`
 }
@@ -61,12 +62,24 @@ func (t *Torrent) ComputeInfoHash() ([20]byte, error) {
 	return sha1.Sum(buf.Bytes()), nil
 }
 
+// GetPieceHashes splits the concatenated SHA-1 piece hashes into individual entries.
+func (t *Torrent) GetPieceHashes() [][20]byte {
+	raw := []byte(t.Info.Pieces)
+	hashes := make([][20]byte, len(raw)/20)
+	for i := range hashes {
+		copy(hashes[i][:], raw[i*20:(i+1)*20])
+	}
+	return hashes
+}
+
 // FormatFileSize converts bytes to a readable format
 func FormatFileSize(bytes int) string {
 	if bytes < 1024 {
 		return fmt.Sprintf("%d B", bytes)
 	} else if bytes < 1024*1024 {
 		return fmt.Sprintf("%.2f KB", float64(bytes)/1024)
+	} else if bytes < 1024*1024*1024 {
+		return fmt.Sprintf("%.2f MB", float64(bytes)/1024/1024)
 	}
-	return fmt.Sprintf("%.2f MB", float64(bytes)/1024/1024)
+	return fmt.Sprintf("%.2f GB", float64(bytes)/1024/1024/1024)
 }
